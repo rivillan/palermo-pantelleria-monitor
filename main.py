@@ -15,11 +15,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_URL = (
-    "https://api.book.dat.dk/RESTv1/travelOptions?cityPair=PMO-PNL&departure=2026-09-10"
-    "&cabinClass=&currency=EUR&passengerCounts=ADT%3A1&daysBeforeDeparture=1&daysAfterDeparture=8"
-    "&promoCode=&company=&return=2026-09-13&daysBeforeReturn=2&daysAfterReturn=7"
-)
+BASE_API_URL = "https://api.book.dat.dk/RESTv1/travelOptions"
+DEFAULT_CITY_PAIR = "PMO-PNL"
+DEFAULT_CURRENCY = "EUR"
+DEFAULT_PASSENGER_COUNTS = "ADT:1"
+DEFAULT_DAYS_BEFORE_DEPARTURE = 1
+DEFAULT_DAYS_AFTER_DEPARTURE = 8
+DEFAULT_DAYS_BEFORE_RETURN = 2
+DEFAULT_DAYS_AFTER_RETURN = 7
 DEFAULT_STATE_FILE = ".pmo_pantelleria_state.json"
 DEFAULT_INTERVAL_SECONDS = 300
 DEFAULT_HTTP_TIMEOUT_SECONDS = 30
@@ -40,6 +43,39 @@ class Config:
     telegram_chat_id: str | None
     once: bool
     silent_start: bool
+
+
+def build_monitor_url(
+    city_pair: str,
+    departure_date: str,
+    return_date: str | None,
+    currency: str,
+    passenger_counts: str,
+    cabin_class: str,
+    promo_code: str,
+    company: str,
+    days_before_departure: int,
+    days_after_departure: int,
+    days_before_return: int,
+    days_after_return: int,
+) -> str:
+    """Costruisce l'URL dell'API travelOptions a partire da parametri generici e configurabili."""
+    params = {
+        "cityPair": city_pair,
+        "departure": departure_date,
+        "cabinClass": cabin_class,
+        "currency": currency,
+        "passengerCounts": passenger_counts,
+        "daysBeforeDeparture": str(days_before_departure),
+        "daysAfterDeparture": str(days_after_departure),
+        "promoCode": promo_code,
+        "company": company,
+    }
+    if return_date:
+        params["return"] = return_date
+        params["daysBeforeReturn"] = str(days_before_return)
+        params["daysAfterReturn"] = str(days_after_return)
+    return f"{BASE_API_URL}?{urllib.parse.urlencode(params)}"
 
 
 @dataclass(frozen=True)
@@ -93,7 +129,55 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Monitora disponibilita voli Palermo <-> Pantelleria e avvisa quando ci sono posti liberi."
     )
-    parser.add_argument("--url", default=env_or_default("PMO_PNL_MONITOR_URL", DEFAULT_URL), help="URL API da monitorare.")
+    parser.add_argument(
+        "--url",
+        default=env_or_default("PMO_PNL_MONITOR_URL", None),
+        help="URL API completo da monitorare. Se omesso viene costruito dai parametri --city-pair/--departure-date/ecc.",
+    )
+    parser.add_argument("--city-pair", default=env_or_default("PMO_PNL_CITY_PAIR", DEFAULT_CITY_PAIR), help="Coppia di citta IATA, es. PMO-PNL.")
+    parser.add_argument(
+        "--departure-date",
+        default=env_or_default("PMO_PNL_DEPARTURE_DATE", None),
+        help="Data di partenza (YYYY-MM-DD) da usare come centro della ricerca. Default: oggi.",
+    )
+    parser.add_argument(
+        "--return-date",
+        default=env_or_default("PMO_PNL_RETURN_DATE", None),
+        help="Data di ritorno opzionale (YYYY-MM-DD) per includere anche la tratta di rientro.",
+    )
+    parser.add_argument("--currency", default=env_or_default("PMO_PNL_CURRENCY", DEFAULT_CURRENCY), help="Valuta per le tariffe.")
+    parser.add_argument(
+        "--passenger-counts",
+        default=env_or_default("PMO_PNL_PASSENGER_COUNTS", DEFAULT_PASSENGER_COUNTS),
+        help="Conteggio passeggeri, es. ADT:1.",
+    )
+    parser.add_argument("--cabin-class", default=env_or_default("PMO_PNL_CABIN_CLASS", "") or "", help="Classe di cabina opzionale.")
+    parser.add_argument("--promo-code", default=env_or_default("PMO_PNL_PROMO_CODE", "") or "", help="Codice promozionale opzionale.")
+    parser.add_argument("--company", default=env_or_default("PMO_PNL_COMPANY", "") or "", help="Filtro compagnia opzionale.")
+    parser.add_argument(
+        "--days-before-departure",
+        type=int,
+        default=int(env_or_default("PMO_PNL_DAYS_BEFORE_DEPARTURE", str(DEFAULT_DAYS_BEFORE_DEPARTURE)) or str(DEFAULT_DAYS_BEFORE_DEPARTURE)),
+        help="Giorni prima della data di partenza da includere nella ricerca.",
+    )
+    parser.add_argument(
+        "--days-after-departure",
+        type=int,
+        default=int(env_or_default("PMO_PNL_DAYS_AFTER_DEPARTURE", str(DEFAULT_DAYS_AFTER_DEPARTURE)) or str(DEFAULT_DAYS_AFTER_DEPARTURE)),
+        help="Giorni dopo la data di partenza da includere nella ricerca.",
+    )
+    parser.add_argument(
+        "--days-before-return",
+        type=int,
+        default=int(env_or_default("PMO_PNL_DAYS_BEFORE_RETURN", str(DEFAULT_DAYS_BEFORE_RETURN)) or str(DEFAULT_DAYS_BEFORE_RETURN)),
+        help="Giorni prima della data di ritorno da includere nella ricerca.",
+    )
+    parser.add_argument(
+        "--days-after-return",
+        type=int,
+        default=int(env_or_default("PMO_PNL_DAYS_AFTER_RETURN", str(DEFAULT_DAYS_AFTER_RETURN)) or str(DEFAULT_DAYS_AFTER_RETURN)),
+        help="Giorni dopo la data di ritorno da includere nella ricerca.",
+    )
     parser.add_argument(
         "--interval",
         type=int,
@@ -140,8 +224,25 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_config(args: argparse.Namespace) -> Config:
+    url = args.url
+    if not url:
+        departure_date = args.departure_date or datetime.now().strftime("%Y-%m-%d")
+        url = build_monitor_url(
+            city_pair=args.city_pair,
+            departure_date=departure_date,
+            return_date=args.return_date,
+            currency=args.currency,
+            passenger_counts=args.passenger_counts,
+            cabin_class=args.cabin_class,
+            promo_code=args.promo_code,
+            company=args.company,
+            days_before_departure=args.days_before_departure,
+            days_after_departure=args.days_after_departure,
+            days_before_return=args.days_before_return,
+            days_after_return=args.days_after_return,
+        )
     return Config(
-        url=args.url,
+        url=url,
         interval_seconds=max(10, args.interval),
         state_file=Path(args.state_file),
         http_timeout_seconds=max(5, args.http_timeout),

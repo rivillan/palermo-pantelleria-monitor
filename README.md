@@ -12,7 +12,7 @@ Bot in Python (solo standard library) che controlla i voli di continuita territo
 ## Avvio rapido
 
 1. Copia `.env.example` in `.env`.
-2. Imposta `PMO_PNL_MONITOR_URL` con l'endpoint da monitorare (date, cityPair, passeggeri, ecc.).
+2. Personalizza almeno `PMO_PNL_CITY_PAIR`, `PMO_PNL_DEPARTURE_DATE` (default: oggi) e, se vuoi controllare anche il rientro, `PMO_PNL_RETURN_DATE`.
 3. Avvia il bot:
 
 ```powershell
@@ -21,9 +21,16 @@ python main.py
 
 ## Configurazione
 
-Variabili supportate (vedi `.env.example`):
+L'URL dell'API viene costruito automaticamente da parametri generici (nessuna data o dato personale hardcoded nel codice). Variabili supportate (vedi `.env.example`):
 
-- `PMO_PNL_MONITOR_URL`: URL dell'API `travelOptions` da controllare.
+- `PMO_PNL_MONITOR_URL`: URL completo opzionale, se impostato ha priorita su tutti i parametri sotto.
+- `PMO_PNL_CITY_PAIR`: coppia di citta IATA, default `PMO-PNL`.
+- `PMO_PNL_DEPARTURE_DATE`: data di partenza `YYYY-MM-DD`, default la data odierna.
+- `PMO_PNL_RETURN_DATE`: data di ritorno opzionale `YYYY-MM-DD`.
+- `PMO_PNL_CURRENCY`: valuta, default `EUR`.
+- `PMO_PNL_PASSENGER_COUNTS`: conteggio passeggeri, default `ADT:1`.
+- `PMO_PNL_CABIN_CLASS`, `PMO_PNL_PROMO_CODE`, `PMO_PNL_COMPANY`: filtri opzionali.
+- `PMO_PNL_DAYS_BEFORE_DEPARTURE` / `PMO_PNL_DAYS_AFTER_DEPARTURE` / `PMO_PNL_DAYS_BEFORE_RETURN` / `PMO_PNL_DAYS_AFTER_RETURN`: ampiezza della finestra di ricerca in giorni.
 - `PMO_PNL_CHECK_INTERVAL_SECONDS`: intervallo tra i controlli, default `300`.
 - `PMO_PNL_HTTP_TIMEOUT_SECONDS`: timeout delle richieste HTTP, default `30`.
 - `PMO_PNL_MIN_SEATS`: soglia minima di posti per considerare un volo disponibile, default `1`.
@@ -37,7 +44,9 @@ Variabili supportate (vedi `.env.example`):
 ## Esempio
 
 ```powershell
-$env:PMO_PNL_MONITOR_URL = "https://api.book.dat.dk/RESTv1/travelOptions?cityPair=PMO-PNL&departure=2026-09-10&cabinClass=&currency=EUR&passengerCounts=ADT%3A1&daysBeforeDeparture=1&daysAfterDeparture=8&promoCode=&company=&return=2026-09-13&daysBeforeReturn=2&daysAfterReturn=7"
+$env:PMO_PNL_CITY_PAIR = "PMO-PNL"
+$env:PMO_PNL_DEPARTURE_DATE = "2026-09-10"
+$env:PMO_PNL_RETURN_DATE = "2026-09-13"
 $env:TELEGRAM_BOT_TOKEN = "123456:ABCDEF"
 $env:TELEGRAM_CHAT_ID = "123456789"
 python main.py
@@ -47,11 +56,11 @@ python main.py
 
 Il workflow `.github/workflows/pmo-pantelleria-monitor.yml` esegue un controllo ogni 5 minuti usando la cache di GitHub Actions per mantenere lo stato tra le esecuzioni.
 
-Configura questi segreti nel repository:
+Configura questi secrets/variables nel repository:
 
-- `PMO_PNL_MONITOR_URL`
-- `TELEGRAM_BOT_TOKEN` se vuoi le notifiche Telegram
-- `TELEGRAM_CHAT_ID` se vuoi le notifiche Telegram
+- `PMO_PNL_MONITOR_URL` (secret, opzionale) oppure le variabili `PMO_PNL_CITY_PAIR` / `PMO_PNL_DEPARTURE_DATE` / `PMO_PNL_RETURN_DATE`
+- `TELEGRAM_BOT_TOKEN` (secret) se vuoi le notifiche Telegram
+- `TELEGRAM_CHAT_ID` (secret) se vuoi le notifiche Telegram
 
 ## Nota
 
