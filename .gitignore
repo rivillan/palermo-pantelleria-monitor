@@ -1,0 +1,4 @@
+.env
+.pmo_pantelleria_state.json
+__pycache__/
+*.pyc
