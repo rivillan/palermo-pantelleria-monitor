@@ -76,14 +76,6 @@ Per testarlo con una grafica locale:
 python pmo_pantelleria_monitor.py --web
 ```
 
-La UI permette di modificare e salvare in `.env` la tratta, le date, i passeggeri, la soglia posti, i parametri API e le notifiche Telegram. Premi **Salva configurazione in .env**; in seguito puoi avviare il processo senza UI con:
-
-```powershell
-python main.py
-```
-
-La GUI ascolta solo su `127.0.0.1` per impostazione predefinita, così i token Telegram non vengono esposti in rete. Puoi modificare host e porta con `PMO_PNL_WEB_HOST` e `PMO_PNL_WEB_PORT`.
-
-Apri `http://127.0.0.1:8080`, scegli tratta e date nel form e premi **Controlla disponibilità**. La GUI esegue una verifica singola per ogni invio; arresta il server con `Ctrl+C`. L'indirizzo e la porta sono configurabili con `PMO_PNL_WEB_HOST` e `PMO_PNL_WEB_PORT`.
+Apri `http://127.0.0.1:8080`, scegli soltanto tratta e date nel form e premi **Controlla disponibilità** oppure **Salva configurazione in .env**. La GUI esegue una verifica singola per ogni invio; arresta il server con `Ctrl+C`. I parametri API, le notifiche e il file di stato restano configurabili solo tramite `.env`. L'indirizzo e la porta sono configurabili con `PMO_PNL_WEB_HOST` e `PMO_PNL_WEB_PORT`.
 
 L'URL dell'API viene costruito automaticamente da parametri generici (nessuna data o dato personale hardcoded): `PMO_PNL_CITY_PAIR`, `PMO_PNL_DEPARTURE_DATE` (default: oggi), `PMO_PNL_RETURN_DATE`, `PMO_PNL_CURRENCY`, `PMO_PNL_PASSENGER_COUNTS`, `PMO_PNL_CABIN_CLASS`, `PMO_PNL_PROMO_CODE`, `PMO_PNL_COMPANY` e la finestra di ricerca `PMO_PNL_DAYS_*`. Se `PMO_PNL_RETURN_DATE` è vuota, la richiesta è solo andata e non contiene parametri di ritorno. In alternativa, `PMO_PNL_MONITOR_URL` permette di impostare un URL completo che ha priorità su tutto il resto. Altre variabili: `PMO_PNL_HTTP_TIMEOUT_SECONDS`, `PMO_PNL_MIN_SEATS`, `PMO_PNL_ROUTE_LABEL`, `PMO_PNL_STATE_FILE`, `PMO_PNL_BOOKING_URL`. Il bot esegue sempre una singola verifica; `RUN_ONCE` è mantenuta solo per compatibilità.

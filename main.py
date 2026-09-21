@@ -514,29 +514,7 @@ code {{ background: #eef1f4; padding: 2px 5px; border-radius: 4px; }}
 <input name="departure_date" type="date" value="{value("departure_date")}"></label>
 <label>Data ritorno (opzionale)
 <input name="return_date" type="date" value="{value("return_date")}"></label>
-<label>Posti minimi
-<input name="min_seats" type="number" min="1" value="{value("min_seats", "1")}"></label>
-<label>Passeggeri
-<input name="passenger_counts" value="{value("passenger_counts", "ADT:1")}"></label>
 </div>
-<div class="section"><h2>Parametri API</h2><div class="grid">
-<label>Valuta<input name="currency" value="{value("currency", "EUR")}"></label>
-<label>Classe cabina<input name="cabin_class" value="{value("cabin_class")}"></label>
-<label>Codice promo<input name="promo_code" value="{value("promo_code")}"></label>
-<label>Compagnia<input name="company" value="{value("company")}"></label>
-<label>Giorni prima partenza<input name="days_before_departure" type="number" min="0" value="{value("days_before_departure", "1")}"></label>
-<label>Giorni dopo partenza<input name="days_after_departure" type="number" min="0" value="{value("days_after_departure", "8")}"></label>
-<label>Giorni prima ritorno<input name="days_before_return" type="number" min="0" value="{value("days_before_return", "2")}"></label>
-<label>Giorni dopo ritorno<input name="days_after_return" type="number" min="0" value="{value("days_after_return", "7")}"></label>
-</div></div>
-<div class="section"><h2>Notifiche e stato</h2><div class="grid">
-<label>Telegram bot token<input name="telegram_bot_token" type="password" value="{value("telegram_bot_token")}"></label>
-<label>Telegram chat ID<input name="telegram_chat_id" value="{value("telegram_chat_id")}"></label>
-<label>Etichetta<input name="route_label" value="{value("route_label", "Palermo <-> Pantelleria")}"></label>
-<label>File stato<input name="state_file" value="{value("state_file", ".pmo_pantelleria_state.json")}"></label>
-<label>URL booking<input name="booking_url" value="{value("booking_url")}"></label>
-<label>Timeout HTTP<input name="http_timeout" type="number" min="5" value="{value("http_timeout", "30")}"></label>
-</div></div>
 <button type="submit">Controlla disponibilità</button>
 <button type="submit" formaction="/save">Salva configurazione in .env</button>
 </form>
@@ -550,23 +528,6 @@ def run_web_server(host: str, port: int, base_args: argparse.Namespace) -> int:
         "city_pair": base_args.city_pair,
         "departure_date": base_args.departure_date or datetime.now().strftime("%Y-%m-%d"),
         "return_date": base_args.return_date or "",
-        "min_seats": str(base_args.min_seats),
-        "passenger_counts": base_args.passenger_counts,
-        "min_seats": str(base_args.min_seats),
-        "currency": base_args.currency,
-        "cabin_class": base_args.cabin_class,
-        "promo_code": base_args.promo_code,
-        "company": base_args.company,
-        "days_before_departure": str(base_args.days_before_departure),
-        "days_after_departure": str(base_args.days_after_departure),
-        "days_before_return": str(base_args.days_before_return),
-        "days_after_return": str(base_args.days_after_return),
-        "http_timeout": str(base_args.http_timeout),
-        "route_label": base_args.route_label,
-        "state_file": base_args.state_file,
-        "booking_url": base_args.booking_url or "",
-        "telegram_bot_token": base_args.telegram_bot_token or "",
-        "telegram_chat_id": base_args.telegram_chat_id or "",
     }
 
     class Handler(BaseHTTPRequestHandler):
@@ -594,50 +555,31 @@ def run_web_server(host: str, port: int, base_args: argparse.Namespace) -> int:
                         "PMO_PNL_CITY_PAIR": values.get("city_pair", defaults["city_pair"]),
                         "PMO_PNL_DEPARTURE_DATE": values.get("departure_date", ""),
                         "PMO_PNL_RETURN_DATE": values.get("return_date", ""),
-                        "PMO_PNL_CURRENCY": values.get("currency", "EUR"),
-                        "PMO_PNL_PASSENGER_COUNTS": values.get("passenger_counts", DEFAULT_PASSENGER_COUNTS),
-                        "PMO_PNL_CABIN_CLASS": values.get("cabin_class", ""),
-                        "PMO_PNL_PROMO_CODE": values.get("promo_code", ""),
-                        "PMO_PNL_COMPANY": values.get("company", ""),
-                        "PMO_PNL_DAYS_BEFORE_DEPARTURE": values.get("days_before_departure", "1"),
-                        "PMO_PNL_DAYS_AFTER_DEPARTURE": values.get("days_after_departure", "8"),
-                        "PMO_PNL_DAYS_BEFORE_RETURN": values.get("days_before_return", "2"),
-                        "PMO_PNL_DAYS_AFTER_RETURN": values.get("days_after_return", "7"),
-                        "PMO_PNL_HTTP_TIMEOUT_SECONDS": values.get("http_timeout", "30"),
-                        "PMO_PNL_MIN_SEATS": values.get("min_seats", "1"),
-                        "PMO_PNL_ROUTE_LABEL": values.get("route_label", ""),
-                        "PMO_PNL_STATE_FILE": values.get("state_file", DEFAULT_STATE_FILE),
-                        "PMO_PNL_BOOKING_URL": values.get("booking_url", ""),
-                        "TELEGRAM_BOT_TOKEN": values.get("telegram_bot_token", ""),
-                        "TELEGRAM_CHAT_ID": values.get("telegram_chat_id", ""),
+                        "PMO_PNL_CURRENCY": base_args.currency,
+                        "PMO_PNL_PASSENGER_COUNTS": base_args.passenger_counts,
+                        "PMO_PNL_CABIN_CLASS": base_args.cabin_class,
+                        "PMO_PNL_PROMO_CODE": base_args.promo_code,
+                        "PMO_PNL_COMPANY": base_args.company,
+                        "PMO_PNL_DAYS_BEFORE_DEPARTURE": str(base_args.days_before_departure),
+                        "PMO_PNL_DAYS_AFTER_DEPARTURE": str(base_args.days_after_departure),
+                        "PMO_PNL_DAYS_BEFORE_RETURN": str(base_args.days_before_return),
+                        "PMO_PNL_DAYS_AFTER_RETURN": str(base_args.days_after_return),
+                        "PMO_PNL_HTTP_TIMEOUT_SECONDS": str(base_args.http_timeout),
+                        "PMO_PNL_MIN_SEATS": str(base_args.min_seats),
+                        "PMO_PNL_ROUTE_LABEL": base_args.route_label,
+                        "PMO_PNL_STATE_FILE": base_args.state_file,
+                        "PMO_PNL_BOOKING_URL": base_args.booking_url or "",
+                        "TELEGRAM_BOT_TOKEN": base_args.telegram_bot_token or "",
+                        "TELEGRAM_CHAT_ID": base_args.telegram_chat_id or "",
                         "SILENT_START": "false",
                     }
                     save_web_env(env_values)
-                    self.send_page(render_web_page({**values, **{
-                        "min_seats": env_values["PMO_PNL_MIN_SEATS"],
-                        "http_timeout": env_values["PMO_PNL_HTTP_TIMEOUT_SECONDS"],
-                    }}, result="Configurazione salvata in .env. Puoi ora avviare il bot con: python main.py"))
+                    self.send_page(render_web_page(values, result="Configurazione salvata in .env. Puoi ora avviare il bot con: python main.py"))
                     return
                 args = argparse.Namespace(**vars(base_args))
                 args.city_pair = values.get("city_pair", defaults["city_pair"])
                 args.departure_date = values.get("departure_date", "")
                 args.return_date = values.get("return_date", "")
-                args.min_seats = int(values.get("min_seats", "1"))
-                args.passenger_counts = values.get("passenger_counts", DEFAULT_PASSENGER_COUNTS)
-                args.currency = values.get("currency", DEFAULT_CURRENCY)
-                args.cabin_class = values.get("cabin_class", "")
-                args.promo_code = values.get("promo_code", "")
-                args.company = values.get("company", "")
-                args.days_before_departure = int(values.get("days_before_departure", "1"))
-                args.days_after_departure = int(values.get("days_after_departure", "8"))
-                args.days_before_return = int(values.get("days_before_return", "2"))
-                args.days_after_return = int(values.get("days_after_return", "7"))
-                args.http_timeout = int(values.get("http_timeout", "30"))
-                args.route_label = values.get("route_label", defaults.get("route_label", ""))
-                args.state_file = values.get("state_file", DEFAULT_STATE_FILE)
-                args.booking_url = values.get("booking_url", "")
-                args.telegram_bot_token = values.get("telegram_bot_token", "")
-                args.telegram_chat_id = values.get("telegram_chat_id", "")
                 args.url = None
                 config = build_config(args)
                 available, events = poll_once(config)
