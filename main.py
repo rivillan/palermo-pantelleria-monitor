@@ -455,7 +455,8 @@ def poll_once(config: Config) -> tuple[bool, list[AvailabilityEvent], list[Avail
         config.return_date,
         include_unavailable=True,
     )
-    events = [event for event in all_events if event.remaining_seats >= config.min_seats]
+    # Telegram notifications are sent for any flight with at least one free seat.
+    events = [event for event in all_events if event.remaining_seats > 0]
     signature = build_signature(events)
 
     state = load_state(config.state_file)
