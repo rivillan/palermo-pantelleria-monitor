@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import html
 import hashlib
 import json
 import os
 import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,6 +28,8 @@ DEFAULT_STATE_FILE = ".pmo_pantelleria_state.json"
 DEFAULT_INTERVAL_SECONDS = 300
 DEFAULT_HTTP_TIMEOUT_SECONDS = 30
 DEFAULT_MIN_SEATS = 1
+DEFAULT_WEB_HOST = "127.0.0.1"
+DEFAULT_WEB_PORT = 8080
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PmoPantelleriaAvailabilityBot/1.0"
 
 
@@ -222,6 +226,9 @@ def parse_args() -> argparse.Namespace:
         default=parse_bool(env_or_default("SILENT_START", None), False),
         help="Non notifica se risultano gia posti disponibili al primo controllo.",
     )
+    parser.add_argument("--web", action="store_true", help="Avvia l'interfaccia web locale per testare il bot.")
+    parser.add_argument("--web-host", default=env_or_default("PMO_PNL_WEB_HOST", DEFAULT_WEB_HOST), help="Indirizzo dell'interfaccia web.")
+    parser.add_argument("--web-port", type=int, default=int(env_or_default("PMO_PNL_WEB_PORT", str(DEFAULT_WEB_PORT)) or str(DEFAULT_WEB_PORT)), help="Porta dell'interfaccia web.")
     return parser.parse_args()
 
 
@@ -432,9 +439,126 @@ def run_loop(config: Config) -> int:
     return 0
 
 
+def render_web_page(values: dict[str, str], result: str = "", error: str = "") -> str:
+    def value(name: str, default: str = "") -> str:
+        return html.escape(values.get(name, default), quote=True)
+
+    result_block = f'<div class="result">{result}</div>' if result else ""
+    error_block = f'<div class="error">{html.escape(error)}</div>' if error else ""
+    return f"""<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flight availability monitor</title>
+<style>
+body {{ font-family: system-ui, sans-serif; background: #f4f6f8; color: #17202a; margin: 0; }}
+main {{ max-width: 860px; margin: 32px auto; padding: 0 18px; }}
+.card {{ background: white; border-radius: 12px; padding: 24px; box-shadow: 0 3px 18px #0001; }}
+.grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }}
+label {{ display: flex; flex-direction: column; gap: 6px; font-weight: 600; }}
+input, select {{ border: 1px solid #c8d0d8; border-radius: 7px; padding: 10px; font: inherit; }}
+button {{ margin-top: 18px; background: #1769e0; color: white; border: 0; border-radius: 7px; padding: 11px 18px; font-weight: 700; cursor: pointer; }}
+.hint {{ color: #59636e; font-size: .92rem; }}
+.result {{ margin-top: 20px; background: #eef8ef; border-left: 4px solid #2e9d4d; padding: 15px; white-space: pre-wrap; }}
+.error {{ margin-top: 20px; background: #fff0f0; border-left: 4px solid #d33; padding: 15px; }}
+code {{ background: #eef1f4; padding: 2px 5px; border-radius: 4px; }}
+</style>
+</head>
+<body><main><div class="card">
+<h1>Flight availability monitor</h1>
+<p class="hint">Una verifica singola contro l'API DAT. Lascia vuota la data di ritorno per una ricerca di sola andata.</p>
+<form method="post" action="/check">
+<div class="grid">
+<label>Tratta
+<select name="city_pair">
+<option value="PMO-PNL" {"selected" if values.get("city_pair", "PMO-PNL") == "PMO-PNL" else ""}>Palermo → Pantelleria</option>
+<option value="PNL-PMO" {"selected" if values.get("city_pair") == "PNL-PMO" else ""}>Pantelleria → Palermo</option>
+<option value="TPS-PNL" {"selected" if values.get("city_pair") == "TPS-PNL" else ""}>Trapani → Pantelleria</option>
+<option value="PNL-TPS" {"selected" if values.get("city_pair") == "PNL-TPS" else ""}>Pantelleria → Trapani</option>
+</select></label>
+<label>Data partenza
+<input name="departure_date" type="date" value="{value("departure_date")}"></label>
+<label>Data ritorno (opzionale)
+<input name="return_date" type="date" value="{value("return_date")}"></label>
+<label>Posti minimi
+<input name="min_seats" type="number" min="1" value="{value("min_seats", "1")}"></label>
+<label>Passeggeri
+<input name="passenger_counts" value="{value("passenger_counts", "ADT:1")}"></label>
+</div>
+<button type="submit">Controlla disponibilità</button>
+</form>
+{result_block}{error_block}
+<p class="hint">Avvio: <code>python main.py --web</code> · URL predefinito: <code>http://127.0.0.1:8080</code></p>
+</div></main></body></html>"""
+
+
+def run_web_server(host: str, port: int, base_args: argparse.Namespace) -> int:
+    defaults = {
+        "city_pair": base_args.city_pair,
+        "departure_date": base_args.departure_date or datetime.now().strftime("%Y-%m-%d"),
+        "return_date": base_args.return_date or "",
+        "min_seats": str(base_args.min_seats),
+        "passenger_counts": base_args.passenger_counts,
+    }
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+        def send_page(self, page: str) -> None:
+            body = page.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            self.send_page(render_web_page(defaults))
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            fields = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8"), keep_blank_values=True)
+            values = {key: items[0] for key, items in fields.items()}
+            try:
+                args = argparse.Namespace(**vars(base_args))
+                args.city_pair = values.get("city_pair", defaults["city_pair"])
+                args.departure_date = values.get("departure_date", "")
+                args.return_date = values.get("return_date", "")
+                args.min_seats = int(values.get("min_seats", "1"))
+                args.passenger_counts = values.get("passenger_counts", DEFAULT_PASSENGER_COUNTS)
+                args.url = None
+                config = build_config(args)
+                available, events = poll_once(config)
+                if available:
+                    result = html.escape(format_message(config, events))
+                else:
+                    result = "Nessun volo con posti disponibili per i parametri selezionati."
+                self.send_page(render_web_page(values, result=result))
+            except Exception as error:
+                self.send_page(render_web_page(values, error=str(error)))
+
+    try:
+        server = ThreadingHTTPServer((host, port), Handler)
+        print(f"Interfaccia web disponibile su http://{host}:{port}")
+        server.serve_forever()
+    except OSError as error:
+        print(f"Impossibile avviare l'interfaccia web: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        if "server" in locals():
+            server.server_close()
+    return 0
+
+
 def main() -> int:
     load_dotenv_file()
     args = parse_args()
+    if args.web:
+        return run_web_server(args.web_host, args.web_port, args)
     config = build_config(args)
     return run_loop(config)
 
