@@ -1,4 +1,5 @@
 .env
+.libertylines_state.json
 .pmo_pantelleria_state.json
 __pycache__/
 *.pyc

@@ -17,6 +17,11 @@ jobs:
       PMO_PNL_CITY_PAIR: ${{ vars.PMO_PNL_CITY_PAIR }}
       PMO_PNL_DEPARTURE_DATE: ${{ vars.PMO_PNL_DEPARTURE_DATE }}
       PMO_PNL_RETURN_DATE: ${{ vars.PMO_PNL_RETURN_DATE }}
+      PMO_PNL_CURRENCY: ${{ vars.PMO_PNL_CURRENCY }}
+      PMO_PNL_PASSENGER_COUNTS: ${{ vars.PMO_PNL_PASSENGER_COUNTS }}
+      PMO_PNL_CABIN_CLASS: ${{ vars.PMO_PNL_CABIN_CLASS }}
+      PMO_PNL_PROMO_CODE: ${{ vars.PMO_PNL_PROMO_CODE }}
+      PMO_PNL_COMPANY: ${{ vars.PMO_PNL_COMPANY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       PMO_PNL_CHECK_INTERVAL_SECONDS: "300"
@@ -41,7 +46,7 @@ jobs:
           python-version: "3.12"
 
       - name: Run availability check
-        run: python pmo_pantelleria_monitor.py
+        run: python main.py
 
       - name: Save updated state
         if: always()

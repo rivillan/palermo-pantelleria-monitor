@@ -4,9 +4,7 @@ import argparse
 import hashlib
 import json
 import os
-import signal
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,6 +15,7 @@ from typing import Any
 
 BASE_API_URL = "https://api.book.dat.dk/RESTv1/travelOptions"
 DEFAULT_CITY_PAIR = "PMO-PNL"
+ALLOWED_CITY_PAIRS = frozenset({"PMO-PNL", "PNL-PMO", "TPS-PNL", "PNL-TPS"})
 DEFAULT_CURRENCY = "EUR"
 DEFAULT_PASSENGER_COUNTS = "ADT:1"
 DEFAULT_DAYS_BEFORE_DEPARTURE = 1
@@ -134,7 +133,11 @@ def parse_args() -> argparse.Namespace:
         default=env_or_default("PMO_PNL_MONITOR_URL", None),
         help="URL API completo da monitorare. Se omesso viene costruito dai parametri --city-pair/--departure-date/ecc.",
     )
-    parser.add_argument("--city-pair", default=env_or_default("PMO_PNL_CITY_PAIR", DEFAULT_CITY_PAIR), help="Coppia di citta IATA, es. PMO-PNL.")
+    parser.add_argument(
+        "--city-pair",
+        default=env_or_default("PMO_PNL_CITY_PAIR", DEFAULT_CITY_PAIR),
+        help="Tratta da monitorare: PMO-PNL, PNL-PMO, TPS-PNL oppure PNL-TPS.",
+    )
     parser.add_argument(
         "--departure-date",
         default=env_or_default("PMO_PNL_DEPARTURE_DATE", None),
@@ -143,7 +146,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--return-date",
         default=env_or_default("PMO_PNL_RETURN_DATE", None),
-        help="Data di ritorno opzionale (YYYY-MM-DD) per includere anche la tratta di rientro.",
+        help="Data di ritorno opzionale (YYYY-MM-DD); se vuota la ricerca e solo andata.",
     )
     parser.add_argument("--currency", default=env_or_default("PMO_PNL_CURRENCY", DEFAULT_CURRENCY), help="Valuta per le tariffe.")
     parser.add_argument(
@@ -179,12 +182,6 @@ def parse_args() -> argparse.Namespace:
         help="Giorni dopo la data di ritorno da includere nella ricerca.",
     )
     parser.add_argument(
-        "--interval",
-        type=int,
-        default=int(env_or_default("PMO_PNL_CHECK_INTERVAL_SECONDS", str(DEFAULT_INTERVAL_SECONDS)) or str(DEFAULT_INTERVAL_SECONDS)),
-        help="Intervallo tra i controlli in secondi.",
-    )
-    parser.add_argument(
         "--state-file",
         default=env_or_default("PMO_PNL_STATE_FILE", DEFAULT_STATE_FILE),
         help="File locale per evitare notifiche duplicate.",
@@ -213,7 +210,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--telegram-bot-token", default=env_or_default("TELEGRAM_BOT_TOKEN", None), help="Token bot Telegram per le notifiche.")
     parser.add_argument("--telegram-chat-id", default=env_or_default("TELEGRAM_CHAT_ID", None), help="Chat ID Telegram per le notifiche.")
-    parser.add_argument("--once", action="store_true", default=parse_bool(env_or_default("RUN_ONCE", None), False), help="Esegue un solo controllo e termina.")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        default=True,
+        help="Compatibilita: il bot esegue sempre un solo controllo e termina.",
+    )
     parser.add_argument(
         "--silent-start",
         action="store_true",
@@ -224,11 +226,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_config(args: argparse.Namespace) -> Config:
+    city_pair = args.city_pair.strip().upper()
+    if city_pair not in ALLOWED_CITY_PAIRS:
+        allowed = ", ".join(sorted(ALLOWED_CITY_PAIRS))
+        raise ValueError(f"Tratta non supportata: {city_pair}. Scegli una tra: {allowed}.")
+
     url = args.url
     if not url:
         departure_date = args.departure_date or datetime.now().strftime("%Y-%m-%d")
         url = build_monitor_url(
-            city_pair=args.city_pair,
+            city_pair=city_pair,
             departure_date=departure_date,
             return_date=args.return_date,
             currency=args.currency,
@@ -243,7 +250,7 @@ def build_config(args: argparse.Namespace) -> Config:
         )
     return Config(
         url=url,
-        interval_seconds=max(10, args.interval),
+        interval_seconds=DEFAULT_INTERVAL_SECONDS,
         state_file=Path(args.state_file),
         http_timeout_seconds=max(5, args.http_timeout),
         min_seats=max(1, args.min_seats),
@@ -405,35 +412,22 @@ def poll_once(config: Config) -> tuple[bool, list[AvailabilityEvent]]:
 
 
 def run_loop(config: Config) -> int:
-    stop_requested = False
-
-    def handle_stop(signum: int, frame: Any) -> None:
-        nonlocal stop_requested
-        stop_requested = True
-        print("\nArresto richiesto, chiusura in corso...")
-
-    signal.signal(signal.SIGINT, handle_stop)
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, handle_stop)
-
-    while not stop_requested:
-        try:
-            available, events = poll_once(config)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if available:
-                print(f"[{timestamp}] Disponibile: {len(events)} voli con posti trovati.")
-            else:
-                print(f"[{timestamp}] Nessun posto disponibile.")
-        except urllib.error.HTTPError as error:
-            print(f"HTTP {error.code}: {error.reason}", file=sys.stderr)
-        except urllib.error.URLError as error:
-            print(f"Errore rete: {error.reason}", file=sys.stderr)
-        except Exception as error:
-            print(f"Errore inatteso: {error}", file=sys.stderr)
-
-        if config.once or stop_requested:
-            break
-        time.sleep(config.interval_seconds)
+    try:
+        available, events = poll_once(config)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if available:
+            print(f"[{timestamp}] Disponibile: {len(events)} voli con posti trovati.")
+        else:
+            print(f"[{timestamp}] Nessun posto disponibile.")
+    except urllib.error.HTTPError as error:
+        print(f"HTTP {error.code}: {error.reason}", file=sys.stderr)
+        return 1
+    except urllib.error.URLError as error:
+        print(f"Errore rete: {error.reason}", file=sys.stderr)
+        return 1
+    except Exception as error:
+        print(f"Errore inatteso: {error}", file=sys.stderr)
+        return 1
 
     return 0
 
