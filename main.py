@@ -332,6 +332,7 @@ def extract_events(
     city_pair: str | None = None,
     departure_date: str | None = None,
     return_date: str | None = None,
+    include_unavailable: bool = False,
 ) -> list[AvailabilityEvent]:
     events: list[AvailabilityEvent] = []
     selected_routes = {city_pair: departure_date} if city_pair and departure_date else None
@@ -351,7 +352,7 @@ def extract_events(
             remaining_seats = flight.get("availability")
             if not isinstance(remaining_seats, int):
                 continue
-            if remaining_seats < min_seats:
+            if remaining_seats < min_seats and not include_unavailable:
                 continue
 
             departure = flight.get("departure") if isinstance(flight.get("departure"), dict) else {}
@@ -408,7 +409,7 @@ def save_web_env(values: dict[str, str], path: Path = Path(".env")) -> None:
 
 def format_message(config: Config, events: list[AvailabilityEvent]) -> str:
     lines = [
-        f"Opzioni disponibili: {config.route_label} ({len(events)})",
+        f"Opzioni trovate: {config.route_label} ({len(events)})",
         "",
     ]
     for index, event in enumerate(events, start=1):
@@ -444,15 +445,17 @@ def send_telegram_message(config: Config, message: str) -> None:
         response.read()
 
 
-def poll_once(config: Config) -> tuple[bool, list[AvailabilityEvent]]:
+def poll_once(config: Config) -> tuple[bool, list[AvailabilityEvent], list[AvailabilityEvent]]:
     payload = fetch_json(config.url, config.http_timeout_seconds)
-    events = extract_events(
+    all_events = extract_events(
         payload,
         config.min_seats,
         config.city_pair,
         config.departure_date,
         config.return_date,
+        include_unavailable=True,
     )
+    events = [event for event in all_events if event.remaining_seats >= config.min_seats]
     signature = build_signature(events)
 
     state = load_state(config.state_file)
@@ -477,18 +480,21 @@ def poll_once(config: Config) -> tuple[bool, list[AvailabilityEvent]]:
         }
     )
     save_state(config.state_file, state)
-    return available, events
+    return available, events, all_events
 
 
 def run_loop(config: Config) -> int:
     try:
-        available, events = poll_once(config)
+        available, events, all_events = poll_once(config)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if available:
-            print(format_message(config, events))
-            print(f"[{timestamp}] {len(events)} opzioni con posti trovate.")
+        if all_events:
+            print(format_message(config, all_events))
+            if available:
+                print(f"[{timestamp}] {len(events)} opzioni con posti trovate su {len(all_events)} opzioni.")
+            else:
+                print(f"[{timestamp}] {len(all_events)} opzioni trovate, nessuna sopra la soglia di {config.min_seats} posto.")
         else:
-            print(f"[{timestamp}] Nessun posto disponibile.")
+            print(f"[{timestamp}] Nessuna opzione trovata per {config.city_pair} nella data selezionata.")
     except urllib.error.HTTPError as error:
         print(f"HTTP {error.code}: {error.reason}", file=sys.stderr)
         return 1
@@ -613,11 +619,11 @@ def run_web_server(host: str, port: int, base_args: argparse.Namespace) -> int:
                 args.return_date = values.get("return_date", "")
                 args.url = None
                 config = build_config(args)
-                available, events = poll_once(config)
-                if available:
-                    result = html.escape(format_message(config, events))
+                available, events, all_events = poll_once(config)
+                if all_events:
+                    result = html.escape(format_message(config, all_events))
                 else:
-                    result = "Nessun volo con posti disponibili per i parametri selezionati."
+                    result = "Nessuna opzione trovata per i parametri selezionati."
                 self.send_page(render_web_page(values, result=result))
             except Exception as error:
                 self.send_page(render_web_page(values, error=str(error)))
