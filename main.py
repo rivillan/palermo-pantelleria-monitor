@@ -408,13 +408,14 @@ def save_web_env(values: dict[str, str], path: Path = Path(".env")) -> None:
 
 def format_message(config: Config, events: list[AvailabilityEvent]) -> str:
     lines = [
-        f"Disponibile: {config.route_label}",
+        f"Opzioni disponibili: {config.route_label} ({len(events)})",
         "",
     ]
-    for event in events:
+    for index, event in enumerate(events, start=1):
         flight_suffix = f" (volo {event.flight_number})" if event.flight_number else ""
         lines.append(
-            f"- {event.city_pair} | {event.departure_local} -> {event.arrival_local} | posti: {event.remaining_seats}{flight_suffix}"
+            f"- Opzione {index}: {event.city_pair} | partenza: {event.departure_local} | "
+            f"arrivo: {event.arrival_local} | posti disponibili: {event.remaining_seats}{flight_suffix}"
         )
     if config.booking_url:
         lines.append("")
@@ -465,7 +466,6 @@ def poll_once(config: Config) -> tuple[bool, list[AvailabilityEvent]]:
 
     if should_notify:
         message = format_message(config, events)
-        print(message)
         send_telegram_message(config, message)
 
     state.update(
@@ -485,7 +485,8 @@ def run_loop(config: Config) -> int:
         available, events = poll_once(config)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if available:
-            print(f"[{timestamp}] Disponibile: {len(events)} voli con posti trovati.")
+            print(format_message(config, events))
+            print(f"[{timestamp}] {len(events)} opzioni con posti trovate.")
         else:
             print(f"[{timestamp}] Nessun posto disponibile.")
     except urllib.error.HTTPError as error:
