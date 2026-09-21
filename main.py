@@ -58,6 +58,9 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PmoPantelleriaAvailabili
 @dataclass(frozen=True)
 class Config:
     url: str
+    city_pair: str
+    departure_date: str
+    return_date: str | None
     interval_seconds: int
     state_file: Path
     http_timeout_seconds: int
@@ -101,6 +104,11 @@ def build_monitor_url(
         params["daysBeforeReturn"] = str(days_before_return)
         params["daysAfterReturn"] = str(days_after_return)
     return f"{BASE_API_URL}?{urllib.parse.urlencode(params)}"
+
+
+def reverse_city_pair(city_pair: str) -> str:
+    origin, destination = city_pair.split("-", 1)
+    return f"{destination}-{origin}"
 
 
 @dataclass(frozen=True)
@@ -260,9 +268,9 @@ def build_config(args: argparse.Namespace) -> Config:
         allowed = ", ".join(sorted(ALLOWED_CITY_PAIRS))
         raise ValueError(f"Tratta non supportata: {city_pair}. Scegli una tra: {allowed}.")
 
+    departure_date = args.departure_date or datetime.now().strftime("%Y-%m-%d")
     url = args.url
     if not url:
-        departure_date = args.departure_date or datetime.now().strftime("%Y-%m-%d")
         url = build_monitor_url(
             city_pair=city_pair,
             departure_date=departure_date,
@@ -279,6 +287,9 @@ def build_config(args: argparse.Namespace) -> Config:
         )
     return Config(
         url=url,
+        city_pair=city_pair,
+        departure_date=departure_date,
+        return_date=args.return_date or None,
         interval_seconds=DEFAULT_INTERVAL_SECONDS,
         state_file=Path(args.state_file),
         http_timeout_seconds=max(5, args.http_timeout),
@@ -315,11 +326,24 @@ def normalize_options(payload: Any) -> list[dict[str, Any]]:
     raise ValueError("Formato JSON inatteso: atteso lista di travelOptions.")
 
 
-def extract_events(payload: Any, min_seats: int) -> list[AvailabilityEvent]:
+def extract_events(
+    payload: Any,
+    min_seats: int,
+    city_pair: str | None = None,
+    departure_date: str | None = None,
+    return_date: str | None = None,
+) -> list[AvailabilityEvent]:
     events: list[AvailabilityEvent] = []
+    selected_routes = {city_pair: departure_date} if city_pair and departure_date else None
+    if city_pair and return_date:
+        selected_routes[reverse_city_pair(city_pair)] = return_date
+
     for option in normalize_options(payload):
         city_pair = option.get("cityPair", {})
         city_pair_id = str(city_pair.get("identifier") or "")
+        option_date = str(option.get("departureDate") or "")
+        if selected_routes is not None and selected_routes.get(city_pair_id) != option_date:
+            continue
 
         for flight in option.get("flights", []):
             if not isinstance(flight, dict):
@@ -421,7 +445,13 @@ def send_telegram_message(config: Config, message: str) -> None:
 
 def poll_once(config: Config) -> tuple[bool, list[AvailabilityEvent]]:
     payload = fetch_json(config.url, config.http_timeout_seconds)
-    events = extract_events(payload, config.min_seats)
+    events = extract_events(
+        payload,
+        config.min_seats,
+        config.city_pair,
+        config.departure_date,
+        config.return_date,
+    )
     signature = build_signature(events)
 
     state = load_state(config.state_file)
